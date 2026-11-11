@@ -44,7 +44,7 @@ requests retain previously published values until a successful sync.
 
 Alt syncs run at startup, after authorization, and every five minutes. Member
 role changes, joining/leaving, role permission edits/deletions, and ownership
-changes also queue updates through Remyne's Gateway connection.
+changes also queue updates through Unmyne's Gateway connection.
 Alt syncing does not wait for streak data or call Lurkr.
 
 ## Stats role slots
@@ -177,7 +177,7 @@ The alt uses its own main-bot-authored message selected by
 `ALT_LINKED_ROLES_TOKEN_MESSAGE_ID`, in the same data channel and encrypted with
 the same `LINKED_ROLES_ENCRYPTION_KEY`. Its attachment has the same filename and
 format but contains only alt OAuth tokens. Both messages are accessed through
-the main bot, so the alt does not need access to the data channel. Preserve both
+the main bot over REST. Preserve both
 message IDs and the encryption key when deploying; do not recreate the stores
 on startup or overwrite the main message when configuring the alt.
 

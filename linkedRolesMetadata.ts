@@ -1,6 +1,6 @@
 import { ApplicationRoleConnectionMetadataType, DiscordAPIError, Routes } from "discord.js";
 import client, { streaksGuildId } from "./client.ts";
-import { dataContent } from "./dataMsg.ts";
+import { dataContent, mainBotId, mainRest } from "./dataMsg.ts";
 import { createStatsClient } from "./statsClient.ts";
 
 const fetchStats = createStatsClient(process.env.MAIKAKY_STATS_URL ?? "", process.env.STATS_API_TOKEN ?? "");
@@ -36,7 +36,7 @@ export const registerLinkedRolesSchema = async () => {
     const roleId = dataContent.linkedRoles?.requiredRoleId;
     const guild = await client.guilds.fetch(streaksGuildId);
     const role = roleId ? await guild.roles.fetch(roleId) : null;
-    await client.rest.put(Routes.applicationRoleConnectionMetadata(client.user!.id), {
+    await mainRest.put(Routes.applicationRoleConnectionMetadata(mainBotId), {
         body: getLinkedRolesSchema(role?.name),
     });
 };

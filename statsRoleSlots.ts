@@ -19,7 +19,6 @@ import type {
     Guild,
     GuildMember,
     Message,
-    REST,
     RESTPatchAPIGuildRoleJSONBody,
     RESTPutAPIApplicationCommandsJSONBody,
     RoleColors,
@@ -120,7 +119,7 @@ export const statsRoleCommand: RESTPutAPIApplicationCommandsJSONBody[number] = {
 
 export const startStatsRoleSlots = (
     client: Client,
-    unmyne: { id: string; rest: Pick<REST, "patch" | "delete"> },
+    commandClient: Client,
     guildId: string,
     slots: StatsRoleSlots,
     naming: StatsRoleNaming,
@@ -145,7 +144,7 @@ export const startStatsRoleSlots = (
                 tertiary_color: colors.tertiaryColor,
             },
         };
-        return unmyne.rest.patch(Routes.guildRole(guildId, roleId), { body, reason });
+        return client.rest.patch(Routes.guildRole(guildId, roleId), { body, reason });
     };
 
     const updateRoleOrder = async (guild: Guild) => {
@@ -158,7 +157,7 @@ export const startStatsRoleSlots = (
             const positions = getStatsRolePositions(slots, [...roles.values()], [...recentClaims]);
             if (positions.length > 0) {
                 const body = positions.map(({ role, position }) => ({ id: role, position }));
-                await unmyne.rest.patch(Routes.guildRoles(guildId), { body });
+                await client.rest.patch(Routes.guildRoles(guildId), { body });
             }
             recentClaims.clear();
         } catch {
@@ -207,7 +206,7 @@ export const startStatsRoleSlots = (
         if (!slot || !member.roles.cache.has(slot.roleId)) return false;
         if (!canClaimStatsRoleSlot(slots, slotId, member.id)) {
             console.log(`[Stats Roles] Removing slot ${slotId} from ${member.id}: owner=${slot.ownerId ?? "unclaimed"}, assigned=${getStatsRoleSlot(slots, member.id)}.`);
-            await unmyne.rest.delete(Routes.guildMemberRole(guildId, member.id, slot.roleId), {
+            await client.rest.delete(Routes.guildMemberRole(guildId, member.id, slot.roleId), {
                 reason: "Stats role slot belongs to another member or is not available yet",
             });
             return true;
@@ -292,7 +291,7 @@ export const startStatsRoleSlots = (
         }).catch(() => console.error("[Stats Roles] Could not process role claims; will retry."));
     });
 
-    client.on(Events.InteractionCreate, async interaction => {
+    commandClient.on(Events.InteractionCreate, async interaction => {
         if (!interaction.isChatInputCommand() || interaction.commandName !== "stats-role") return;
         if (interaction.guildId !== guildId || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
             await interaction.reply({ content: "You need Manage Server in the tracked server to configure stats role slots.", flags: MessageFlags.Ephemeral });
@@ -351,7 +350,7 @@ export const startStatsRoleSlots = (
                     await button.update({ content: "Reconciling audited channels with their categories…", components: [], attachments: [] });
                     try {
                         const currentRoleIds = Object.values(slots).map(slot => slot.roleId);
-                        const { synced, skipped, failed } = await reconcileStatsRoleOverwrites(guild, currentRoleIds, targets, unmyne.rest);
+                        const { synced, skipped, failed } = await reconcileStatsRoleOverwrites(guild, currentRoleIds, targets, client.rest);
                         await button.editReply(`Reconciliation finished: ${synced} channels synced, ${skipped} skipped (already synced or no longer match the audit), ${failed} failed.${failed ? " Check Unmyne's channel permissions and logs, then rerun /stats-role audit." : ""}`);
                     } catch {
                         console.error("[Stats Roles] Could not reconcile audited channel permissions.");
@@ -359,7 +358,7 @@ export const startStatsRoleSlots = (
                     }
                     return;
                 }
-                const { cleared, skipped, failed } = await setupStatsRoleOverwrites(guild, roleIds, unmyne.rest);
+                const { cleared, skipped, failed } = await setupStatsRoleOverwrites(guild, roleIds, client.rest);
                 await interaction.editReply(`Stats role setup finished for ${roleIds.length} roles: ${cleared} permission overwrites cleared, ${skipped} already empty, ${failed} failed.${failed ? " Check Unmyne's channel permissions and logs, then rerun /stats-role setup." : ""}`);
                 return;
             }
@@ -411,7 +410,7 @@ export const startStatsRoleSlots = (
                 const slotId = String(interaction.options.getInteger("slot", true));
                 const role = await guild.roles.fetch(interaction.options.getRole("role", true).id);
                 if (!role?.tags?.guildConnections) return "Choose a Linked Role and configure its Stats role slot ID requirement first.";
-                const botMember = await guild.members.fetch({ user: unmyne.id, force: true }).catch(error => {
+                const botMember = await guild.members.fetch({ user: client.user!.id, force: true }).catch(error => {
                     if (error instanceof DiscordAPIError && error.code === RESTJSONErrorCodes.UnknownMember) return null;
                     throw error;
                 });

@@ -1,8 +1,7 @@
-import { Events, REST, Routes } from "discord.js";
-import type { APIUser, TextChannel } from "discord.js";
+import { Events, Routes } from "discord.js";
 import type { Express } from "express";
-import client, { streaksGuildId } from "./client.ts";
-import { dataContent, dataMsg, saveData } from "./dataMsg.ts";
+import client, { remyneClient, streaksGuildId } from "./client.ts";
+import { dataContent, dataMessages, mainBotId, saveData } from "./dataMsg.ts";
 import { getLinkedRolesMetadata, registerLinkedRolesSchema } from "./linkedRolesMetadata.ts";
 import { loadLinkedRolesTokens, saveLinkedRolesTokens } from "./linkedRolesStorage.ts";
 import { startLinkedRolesApplication } from "./linkedRolesApplication.ts";
@@ -30,20 +29,12 @@ export const startLinkedRoles = async (app: Express) => {
     const describeStartupError = (error: unknown) => describeLinkedRolesError(error, [
         altToken, altSecret, clientSecret, unmyneToken, process.env.token ?? "", process.env.LINKED_ROLES_ENCRYPTION_KEY ?? "",
     ]);
-    const channel = dataMsg.channel as TextChannel;
-    const altRest = new REST({ version: "10" }).setToken(altToken);
-    const altUser = await altRest.get(Routes.user()).catch(error => {
-        throw new Error(`[Linked Roles: Alt] Could not identify application: ${describeStartupError(error)}`);
-    }) as APIUser;
-    if (altUser.id === client.user!.id) throw new Error("ALT_TOKEN must belong to a different Discord application.");
-    const unmyneRest = new REST({ version: "10" }).setToken(unmyneToken);
-    const unmyneUser = await unmyneRest.get(Routes.user()).catch(error => {
-        throw new Error(`[Stats Roles] Could not identify Unmyne: ${describeStartupError(error)}`);
-    }) as APIUser;
+    const altBotId = remyneClient.user!.id;
+    if (altBotId === mainBotId) throw new Error("ALT_TOKEN must belong to a different Discord application.");
     const altRedirectUri = new URL("/alt/oauth/discord/callback", new URL(redirectUri).origin).href;
     const loadTokens = async (name: string, messageId: string) => {
         try {
-            return await loadLinkedRolesTokens(channel, messageId);
+            return await loadLinkedRolesTokens(dataMessages, messageId);
         } catch (error) {
             throw new Error(`[Linked Roles: ${name}] Could not load encrypted tokens: ${describeStartupError(error)}`);
         }
@@ -55,33 +46,33 @@ export const startLinkedRoles = async (app: Express) => {
     await registerLinkedRolesSchema().catch(error => {
         throw new Error(`[Linked Roles: Main] Could not register metadata: ${describeStartupError(error)}`);
     });
-    await altRest.put(Routes.applicationRoleConnectionMetadata(altUser.id), { body: altLinkedRolesSchema }).catch(error => {
+    await remyneClient.rest.put(Routes.applicationRoleConnectionMetadata(altBotId), { body: altLinkedRolesSchema }).catch(error => {
         throw new Error(`[Linked Roles: Alt] Could not register metadata: ${describeStartupError(error)}`);
     });
 
     const main = startLinkedRolesApplication(app, {
         name: "Main",
-        clientId: client.user!.id,
+        clientId: mainBotId,
         clientSecret,
         redirectUri,
         verificationPath: "/linked-roles",
         callbackPath: "/oauth/discord/callback",
         cookieName: "linked_roles_state",
         tokens: mainTokens,
-        saveTokens: tokens => saveLinkedRolesTokens(channel, mainMessageId, tokens),
+        saveTokens: tokens => saveLinkedRolesTokens(dataMessages, mainMessageId, tokens),
         getMetadata: getLinkedRolesMetadata,
     });
     const slots = dataContent.statsRoleSlots ??= {};
     const alt = startLinkedRolesApplication(app, {
         name: "Alt",
-        clientId: altUser.id,
+        clientId: altBotId,
         clientSecret: altSecret,
         redirectUri: altRedirectUri,
         verificationPath: "/alt/linked-roles",
         callbackPath: "/alt/oauth/discord/callback",
         cookieName: "alt_linked_roles_state",
         tokens: altTokens,
-        saveTokens: tokens => saveLinkedRolesTokens(channel, altMessageId, tokens),
+        saveTokens: tokens => saveLinkedRolesTokens(dataMessages, altMessageId, tokens),
         getMetadata: userId => getAltLinkedRolesMetadata(client, streaksGuildId, userId, slots),
     });
     client.on(Events.GuildMemberUpdate, (previous, member) => {
@@ -91,7 +82,7 @@ export const startLinkedRoles = async (app: Express) => {
         void main.syncUser(member.id).catch(() => console.error("[Linked Roles: Main] Could not persist Common Role updates."));
     });
     const naming = dataContent.statsRoleNaming ??= { nameFormat: "{status} Role {slot}" };
-    startStatsRoleSlots(client, { id: unmyneUser.id, rest: unmyneRest }, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
+    startStatsRoleSlots(client, remyneClient, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
         const { metadata } = await getLinkedRolesMetadata(userId);
         return formatClaimedStatsRoleName(Number(metadata.current_streak), Number(metadata.longest_streak), Number(metadata.level), naming.claimedNameFormat);
     });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "bun:test";
 import { Collection, Events, PermissionFlagsBits, PermissionsBitField, Routes } from "discord.js";
-import type { APIRoleColors, Client, RoleColors } from "discord.js";
+import type { APIRoleColors, Client, REST, RoleColors } from "discord.js";
 import { canClaimStatsRoleSlot, formatClaimedStatsRoleName, formatUnclaimedStatsRoleName, getStatsRoleSlot, getStatsRolePositions, parseStatsRoleColor } from "./statsRoleSlotData.ts";
 import type { StatsRoleNaming, StatsRoleSlots } from "./statsRoleSlotData.ts";
 import { startStatsRoleSlots } from "./statsRoleSlots.ts";
@@ -109,8 +109,8 @@ test("simultaneous role claims persist the first owner, rename the role, and rem
     };
     const members = new Map([["first", makeMember("first")], ["second", makeMember("second")]]);
     Object.assign(client, { guilds: { fetch: async () => guild } });
-    startStatsRoleSlots(client as unknown as Client, {
-        id: "unmyne",
+    Object.assign(client, {
+        user: { id: "unmyne" },
         rest: {
             patch: async (route, { body } = {}) => {
                 if (route === Routes.guildRoles("guild")) {
@@ -132,8 +132,9 @@ test("simultaneous role claims persist the first owner, rename the role, and rem
                 member.roles.cache.delete("role1");
                 removals.push(member.id);
             },
-        },
-    }, "guild", slots, { nameFormat: "{status} Role {slot}" },
+        } satisfies Pick<REST, "patch" | "delete">,
+    });
+    startStatsRoleSlots(client as unknown as Client, new EventEmitter() as unknown as Client, "guild", slots, { nameFormat: "{status} Role {slot}" },
         async () => { saves.push(JSON.stringify(slots)); },
         async () => { published.push([getStatsRoleSlot(slots, "first"), getStatsRoleSlot(slots, "second")]); },
         async () => formatClaimedStatsRoleName(8, 21, 23));
@@ -198,16 +199,18 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     };
     Object.assign(client, { guilds: { fetch: async () => guild } });
     const naming: StatsRoleNaming = { nameFormat: "{status} Role {slot}" };
-    startStatsRoleSlots(client as unknown as Client, {
-        id: "unmyne",
+    Object.assign(client, {
+        user: { id: "unmyne" },
         rest: {
             patch: async (route, { body } = {}) => {
                 assert.equal(route, Routes.guildRole("guild", role.id));
                 applyRolePatch(role, body);
             },
             delete: async () => { assert.fail("Unexpected role removal"); },
-        },
-    }, "guild", slots, naming,
+        } satisfies Pick<REST, "patch" | "delete">,
+    });
+    const commandClient = new EventEmitter();
+    startStatsRoleSlots(client as unknown as Client, commandClient as unknown as Client, "guild", slots, naming,
         async () => { saves++; }, async () => {}, async () => formatClaimedStatsRoleName(0, 0, 0));
     const interaction = {
         isChatInputCommand: () => true,
@@ -218,17 +221,17 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
         deferReply: async () => {},
         editReply: async (reply: string | { content: string }) => { replies.push(typeof reply === "string" ? reply : reply.content); },
     };
-    client.emit(Events.InteractionCreate, interaction);
+    commandClient.emit(Events.InteractionCreate, interaction);
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(slots["1"], { roleId: role.id });
     assert.equal(saves, 1);
     assert.match(replies.at(-1)!, /mapped to/);
     botMember.permissions = new PermissionsBitField();
-    client.emit(Events.InteractionCreate, interaction);
+    commandClient.emit(Events.InteractionCreate, interaction);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(saves, 1);
     assert.match(replies.at(-1)!, /Manage Roles permission:\*\* Missing/);
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "unclaimed_format" ? "{status} Stats #{slot}" : null },
     });
@@ -237,7 +240,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(naming.nameFormat, "{status} Stats #{slot}");
     assert.equal(role.name, "Unclaimed Stats #1");
     assert.equal(formatUnclaimedStatsRoleName(naming.nameFormat, "2", true), "Locked Stats #2");
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "claimed_format" ? "{streak} • L{level}" : null },
     });
@@ -245,7 +248,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(saves, 3);
     assert.equal(naming.claimedNameFormat, "{streak} • L{level}");
     assert.equal(naming.nameFormat, "{status} Stats #{slot}");
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "unclaimed_format" ? "{status} #{slot}" : null },
     });
@@ -253,7 +256,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(saves, 4);
     assert.equal(naming.claimedNameFormat, "{streak} • L{level}");
     assert.equal(naming.nameFormat, "{status} #{slot}");
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "locked_format" ? "🔒 Slot {slot}" : null },
     });
@@ -263,7 +266,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(naming.claimedNameFormat, "{streak} • L{level}");
     assert.equal(naming.nameFormat, "{status} #{slot}");
     assert.equal(formatUnclaimedStatsRoleName(naming.lockedNameFormat, "2", true), "🔒 Slot 2");
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "unclaimed_format" ? "Open {slot}" : null },
     });
@@ -273,7 +276,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(naming.lockedNameFormat, "🔒 Slot {slot}");
     assert.equal(naming.claimedNameFormat, "{streak} • L{level}");
     assert.equal(role.name, "Open 1");
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "unclaimed_color" ? "#000000" : null },
     });
@@ -281,7 +284,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(saves, 7);
     assert.equal(naming.unclaimedColor, 0);
     assert.deepEqual(role.colors, { primaryColor: 0, secondaryColor: null, tertiaryColor: null });
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: (name: string) => name === "locked_color" ? "#303030" : null },
     });
@@ -290,7 +293,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(naming.lockedColor, 0x303030);
     assert.equal(naming.unclaimedColor, 0);
     assert.equal(role.colors.primaryColor, 0);
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: {
             getSubcommand: () => "config",
@@ -302,7 +305,7 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
     assert.equal(naming.unclaimedColor, 0);
     assert.equal(naming.lockedColor, 0x303030);
     assert.match(replies.at(-1)!, /six hexadecimal digits/);
-    client.emit(Events.InteractionCreate, {
+    commandClient.emit(Events.InteractionCreate, {
         ...interaction,
         options: { getSubcommand: () => "config", getString: () => null },
     });

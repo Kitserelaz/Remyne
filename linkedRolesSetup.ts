@@ -8,7 +8,7 @@ import {
     PermissionFlagsBits,
 } from "discord.js";
 import type { RESTPutAPIApplicationCommandsJSONBody } from "discord.js";
-import client, { streaksGuildId } from "./client.ts";
+import { remyneClient, streaksGuildId } from "./client.ts";
 import { dataContent, saveData } from "./dataMsg.ts";
 import { registerLinkedRolesSchema } from "./linkedRolesMetadata.ts";
 
@@ -27,7 +27,7 @@ export const linkedRoleRequirementCommand: RESTPutAPIApplicationCommandsJSONBody
     }],
 };
 
-client.on(Events.InteractionCreate, async interaction => {
+remyneClient.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand() || interaction.commandName !== "linked-role-requirement") return;
     if (interaction.guildId !== streaksGuildId) {
         await interaction.reply({ content: "Common Role can only be configured in the tracked server.", flags: MessageFlags.Ephemeral });

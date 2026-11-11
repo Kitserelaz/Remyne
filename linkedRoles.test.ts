@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { test, spyOn } from "bun:test";
-import { Collection, DiscordAPIError, Events, GuildMember, PermissionFlagsBits, PermissionsBitField, REST } from "discord.js";
-import type { Client, TextChannel } from "discord.js";
+import { Collection, DiscordAPIError, Events, GuildMember, PermissionFlagsBits, PermissionsBitField, REST, Routes } from "discord.js";
+import type { Client } from "discord.js";
 import type { Express, Request, Response as ExpressResponse } from "express";
+import { createMessageStore } from "./messageStore.ts";
 import { createStatsClient } from "./statsClient.ts";
 import { startLinkedRolesApplication } from "./linkedRolesApplication.ts";
 import { getAltLinkedRolesMetadata, getPermissionMetadata, watchAltPermissionChanges } from "./linkedRolesPermissions.ts";
@@ -211,24 +212,31 @@ test("encrypted messages store each application's tokens independently", async (
     const originalFetch = globalThis.fetch;
     process.env.LINKED_ROLES_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     const buffers = new Map<string, Buffer>([["1", encryptLinkedRolesData("{}")], ["2", encryptLinkedRolesData("{}")]]);
-    const channel = {
-        client: { user: { id: "main-bot" } },
-        messages: { fetch: async ({ message: id }: { message: string }) => ({
-            author: { id: "main-bot" },
-            attachments: new Collection([[id, { name: "linked-roles-tokens.enc", url: id }]]),
-            edit: async (payload: { files: { attachment: Buffer }[]; attachments: unknown[] }) => {
-                assert.deepEqual(payload.attachments, []);
-                buffers.set(id, payload.files[0]!.attachment);
-            },
-        }) },
-    } as unknown as TextChannel;
+    const messages = createMessageStore({
+        get: async route => {
+            const id = route.split("/").at(-1)!;
+            assert.equal(route, Routes.channelMessage("data-channel", id));
+            assert.ok(buffers.has(id));
+            return {
+                author: { id: "main-bot" },
+                attachments: [{ filename: "linked-roles-tokens.enc", url: id }],
+            };
+        },
+        patch: async (route, request) => {
+            const id = route.split("/").at(-1)!;
+            assert.equal(route, Routes.channelMessage("data-channel", id));
+            assert.deepEqual(request?.body, { attachments: [{ id: 0, filename: "linked-roles-tokens.enc" }] });
+            assert.equal(request?.files?.[0]?.name, "linked-roles-tokens.enc");
+            buffers.set(id, Buffer.from(request?.files?.[0]?.data as Buffer));
+        },
+    }, "data-channel", "main-bot");
     globalThis.fetch = (async url => new Response(buffers.get(String(url)))) as typeof fetch;
     try {
         const main = { mainUser: { accessToken: "main", refreshToken: "main-refresh", expiresAt: 1 } };
         const alt = { altUser: { accessToken: "alt", refreshToken: "alt-refresh", expiresAt: 2 } };
-        await Promise.all([saveLinkedRolesTokens(channel, "1", main), saveLinkedRolesTokens(channel, "2", alt)]);
-        assert.deepEqual(await loadLinkedRolesTokens(channel, "1"), main);
-        assert.deepEqual(await loadLinkedRolesTokens(channel, "2"), alt);
+        await Promise.all([saveLinkedRolesTokens(messages, "1", main), saveLinkedRolesTokens(messages, "2", alt)]);
+        assert.deepEqual(await loadLinkedRolesTokens(messages, "1"), main);
+        assert.deepEqual(await loadLinkedRolesTokens(messages, "2"), alt);
         assert.notEqual(buffers.get("1")!.toString(), JSON.stringify(main));
         assert.equal(JSON.parse(decryptLinkedRolesData(buffers.get("2")!)).mainUser, undefined);
     } finally {

@@ -11,12 +11,12 @@ Install with `bun install --frozen-lockfile` and run with `bun run index.ts`.
 Remyne listens on port 3000. Set these variables in the host's private environment:
 
 ```dotenv
-token=<same existing main Discord bot token as Maikaky>
-UNMYNE_TOKEN=<Unmyne bot token>
+token=<main bot token for the main Linked Roles provider and stored messages>
+UNMYNE_TOKEN=<Unmyne bot token for member and role events and server changes>
 DISCORD_CLIENT_SECRET=<existing main application OAuth secret>
 DISCORD_REDIRECT_URI=<existing HTTPS URL ending in /oauth/discord/callback>
 LINKED_ROLES_TOKEN_MESSAGE_ID=<existing main token message ID>
-ALT_TOKEN=<existing alt Discord bot token>
+ALT_TOKEN=<existing Remyne bot token for slash commands and alt Linked Roles>
 ALT_CLIENT_SECRET=<existing alt application OAuth secret>
 ALT_LINKED_ROLES_TOKEN_MESSAGE_ID=<existing alt token message ID>
 LINKED_ROLES_ENCRYPTION_KEY=<existing base64 encryption key>
@@ -25,14 +25,18 @@ MAIKAKY_STATS_URL=https://stats.example.com
 STATS_API_TOKEN=<same dedicated shared secret as Maikaky>
 ```
 
-Maikaky keeps `LURKR_API_KEY`; Remyne does not need it. Both processes use the
-existing main bot identity and therefore share its credentials and Discord limits.
-Keep the existing Guild Members intent enabled on the main bot. Remyne uses
-Unmyne for guild role changes and channel permission updates. Install Unmyne in
+Install the existing **Remyne** application in the tracked server with application
+commands. Its Gateway connection uses `ALT_TOKEN` for slash commands and buttons.
+Unmyne's Gateway connection receives member and role events. Enable **Server
+Members Intent** on Unmyne. Remyne uses the main token over REST for the main
+provider and main-bot-authored messages. Unmyne makes guild role changes and
+channel permission updates. Install Unmyne in
 the tracked server, give it Manage Roles, and place its highest role above the
 stats roles. Channel overwrite setup and reconciliation also require Manage
-Channels on the affected channels. The alt application remains installed as a
-Linked Roles provider and is accessed through REST only.
+Channels on the affected channels.
+
+After the Remyne commands are available, remove any old copies of `/stats-role`
+and `/linked-role-requirement` from the main application's command list.
 
 ## Cutover from the combined bot
 
