@@ -494,4 +494,15 @@ export const startStatsRoleSlots = (
         }
     };
     void refresh();
+
+    return async (userId: string) => {
+        const slotId = Object.keys(slots).find(id => slots[id]?.ownerId === userId);
+        if (!slotId) return;
+        await serialize(async () => {
+            if (slots[slotId]?.ownerId !== userId) return;
+            const guild = await client.guilds.fetch(guildId);
+            const member = await guild.members.fetch({ user: userId, force: true });
+            await processClaim(member, slotId);
+        });
+    };
 };

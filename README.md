@@ -67,3 +67,7 @@ Channels on the affected channels.
 A stats request failure leaves the affected member's published main-provider
 metadata and claimed-role name in place until a successful refresh. Alt permission
 and slot metadata does not need the stats service.
+
+Remyne subscribes to Maikaky's `/internal/stats/events` WebSocket using the same
+stats URL and token. Streak changes trigger a refresh for the affected member.
+The periodic sync catches missed events, expired streaks, and Lurkr changes.

@@ -8,6 +8,7 @@ import { startLinkedRolesApplication } from "./linkedRolesApplication.ts";
 import { altLinkedRolesSchema, getAltLinkedRolesMetadata, watchAltPermissionChanges } from "./linkedRolesPermissions.ts";
 import { describeLinkedRolesError } from "./linkedRolesErrors.ts";
 import { startStatsRoleSlots } from "./statsRoleSlots.ts";
+import { watchStatsEvents } from "./statsClient.ts";
 import { formatClaimedStatsRoleName } from "./statsRoleSlotData.ts";
 
 export const startLinkedRoles = async (app: Express) => {
@@ -82,9 +83,11 @@ export const startLinkedRoles = async (app: Express) => {
         void main.syncUser(member.id).catch(() => console.error("[Linked Roles: Main] Could not persist Common Role updates."));
     });
     const naming = dataContent.statsRoleNaming ??= { nameFormat: "{status} Role {slot}" };
-    startStatsRoleSlots(client, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
+    const refreshClaimedRole = startStatsRoleSlots(client, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
         const { metadata } = await getLinkedRolesMetadata(userId);
         return formatClaimedStatsRoleName(Number(metadata.current_streak), Number(metadata.longest_streak), Number(metadata.level), naming.claimedNameFormat);
     });
     watchAltPermissionChanges(client, streaksGuildId, alt.syncUser, alt.syncUsers);
+    watchStatsEvents(process.env.MAIKAKY_STATS_URL ?? "", process.env.STATS_API_TOKEN ?? "", userId =>
+        Promise.all([main.syncUser(userId), refreshClaimedRole(userId)]));
 };

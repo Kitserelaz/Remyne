@@ -82,6 +82,7 @@ test.each([true, false])("simultaneous role claims update the first owner and re
     const published: number[][] = [];
     let positionUpdates = 0;
     let claimedEdits = 0;
+    let currentStreak = 8;
     const roles = new Map(["role1", "role2"].map((id, index) => [id, {
         id, position: 2 - index,
         name: `Unclaimed Role ${index + 1}`,
@@ -127,7 +128,7 @@ test.each([true, false])("simultaneous role claims update the first owner and re
                 if (applyRolePatch(role, body)) {
                     claimedEdits++;
                     assert.deepEqual(body, {
-                        name: "8🔥21 • Level 23",
+                        name: `${currentStreak}🔥21 • Level 23`,
                         colors: enhancedColors
                             ? { primary_color: 0x123456, secondary_color: 0x654321, tertiary_color: null }
                             : { primary_color: 0x123456 },
@@ -143,10 +144,10 @@ test.each([true, false])("simultaneous role claims update the first owner and re
             },
         } satisfies Pick<REST, "patch" | "delete">,
     });
-    startStatsRoleSlots(client as unknown as Client, "guild", slots, { nameFormat: "{status} Role {slot}" },
+    const refreshClaimedRole = startStatsRoleSlots(client as unknown as Client, "guild", slots, { nameFormat: "{status} Role {slot}" },
         async () => { saves.push(JSON.stringify(slots)); },
         async () => { published.push([getStatsRoleSlot(slots, "first"), getStatsRoleSlot(slots, "second")]); },
-        async () => formatClaimedStatsRoleName(8, 21, 23));
+        async () => formatClaimedStatsRoleName(currentStreak, 21, 23));
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(initialized, true);
     client.emit(Events.GuildMemberUpdate, { roles: { cache: new Collection() } }, members.get("first"));
@@ -169,6 +170,12 @@ test.each([true, false])("simultaneous role claims update the first owner and re
     assert.equal(positionUpdates, 1);
     assert.deepEqual(removals, ["second"]);
     assert.deepEqual(published.at(-1), [1, 2]);
+    currentStreak = 9;
+    await refreshClaimedRole("second");
+    assert.equal(roles.get("role1")!.name, "8🔥21 • Level 23");
+    await refreshClaimedRole("first");
+    assert.equal(roles.get("role1")!.name, "9🔥21 • Level 23");
+    assert.equal(saves.length, 1);
     client.emit(Events.GuildMemberUpdate, { roles: { cache: new Collection([["role1", {}]]) } }, members.get("second"));
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(slots["1"]!.ownerId, "first");
