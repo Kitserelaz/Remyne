@@ -16,7 +16,7 @@ UNMYNE_TOKEN=<Unmyne bot token for member and role events and server changes>
 DISCORD_CLIENT_SECRET=<existing main application OAuth secret>
 DISCORD_REDIRECT_URI=<existing HTTPS URL ending in /oauth/discord/callback>
 LINKED_ROLES_TOKEN_MESSAGE_ID=<existing main token message ID>
-ALT_TOKEN=<existing Remyne bot token for slash commands and alt Linked Roles>
+ALT_TOKEN=<existing Remyne bot token for the alt Linked Roles provider>
 ALT_CLIENT_SECRET=<existing alt application OAuth secret>
 ALT_LINKED_ROLES_TOKEN_MESSAGE_ID=<existing alt token message ID>
 LINKED_ROLES_ENCRYPTION_KEY=<existing base64 encryption key>
@@ -25,18 +25,15 @@ MAIKAKY_STATS_URL=https://stats.example.com
 STATS_API_TOKEN=<same dedicated shared secret as Maikaky>
 ```
 
-Install the existing **Remyne** application in the tracked server with application
-commands. Its Gateway connection uses `ALT_TOKEN` for slash commands and buttons.
-Unmyne's Gateway connection receives member and role events. Enable **Server
+Remyne connects with `ALT_TOKEN` and serves the alt Linked Roles provider.
+Install **Unmyne** in the tracked server with application commands. Unmyne
+handles slash commands, buttons, and member and role events. Enable **Server
 Members Intent** on Unmyne. Remyne uses the main token over REST for the main
 provider and main-bot-authored messages. Unmyne makes guild role changes and
 channel permission updates. Install Unmyne in
 the tracked server, give it Manage Roles, and place its highest role above the
 stats roles. Channel overwrite setup and reconciliation also require Manage
 Channels on the affected channels.
-
-After the Remyne commands are available, remove any old copies of `/stats-role`
-and `/linked-role-requirement` from the main application's command list.
 
 ## Cutover from the combined bot
 

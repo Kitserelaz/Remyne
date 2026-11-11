@@ -119,7 +119,6 @@ export const statsRoleCommand: RESTPutAPIApplicationCommandsJSONBody[number] = {
 
 export const startStatsRoleSlots = (
     client: Client,
-    commandClient: Client,
     guildId: string,
     slots: StatsRoleSlots,
     naming: StatsRoleNaming,
@@ -291,7 +290,7 @@ export const startStatsRoleSlots = (
         }).catch(() => console.error("[Stats Roles] Could not process role claims; will retry."));
     });
 
-    commandClient.on(Events.InteractionCreate, async interaction => {
+    client.on(Events.InteractionCreate, async interaction => {
         if (!interaction.isChatInputCommand() || interaction.commandName !== "stats-role") return;
         if (interaction.guildId !== guildId || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
             await interaction.reply({ content: "You need Manage Server in the tracked server to configure stats role slots.", flags: MessageFlags.Ephemeral });

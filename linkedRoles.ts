@@ -82,7 +82,7 @@ export const startLinkedRoles = async (app: Express) => {
         void main.syncUser(member.id).catch(() => console.error("[Linked Roles: Main] Could not persist Common Role updates."));
     });
     const naming = dataContent.statsRoleNaming ??= { nameFormat: "{status} Role {slot}" };
-    startStatsRoleSlots(client, remyneClient, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
+    startStatsRoleSlots(client, streaksGuildId, slots, naming, saveData, alt.syncUsers, async userId => {
         const { metadata } = await getLinkedRolesMetadata(userId);
         return formatClaimedStatsRoleName(Number(metadata.current_streak), Number(metadata.longest_streak), Number(metadata.level), naming.claimedNameFormat);
     });

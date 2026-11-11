@@ -9,7 +9,7 @@ import { statsRoleCommand } from "./statsRoleSlots.ts";
 const app = express();
 await startLinkedRoles(app);
 for (const command of [linkedRoleRequirementCommand, statsRoleCommand]) {
-    await remyneClient.rest.post(Routes.applicationCommands(remyneClient.user!.id), { body: command });
+    await client.rest.post(Routes.applicationCommands(client.user!.id), { body: command });
 }
 app.get("/", (_req, res) => {
     const slots = Object.values(dataContent.statsRoleSlots ?? {});
@@ -50,8 +50,8 @@ app.get("/", (_req, res) => {
     <main>
         <h1>Remyne</h1>
         <dl>
-            <dt>Remyne commands</dt><dd>${remyneClient.isReady() ? "Connected" : "Not ready"}</dd>
-            <dt>Unmyne events</dt><dd>${client.isReady() ? "Connected" : "Not ready"}</dd>
+            <dt>Remyne connection</dt><dd>${remyneClient.isReady() ? "Connected" : "Not ready"}</dd>
+            <dt>Unmyne connection</dt><dd>${client.isReady() ? "Connected" : "Not ready"}</dd>
             <dt>Configured stats role slots</dt><dd>${slots.length}</dd>
             <dt>Claimed slots</dt><dd>${claimed}</dd>
         </dl>
