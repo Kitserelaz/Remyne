@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "bun:test";
-import { Collection, Events, PermissionFlagsBits, PermissionsBitField, Routes } from "discord.js";
+import { Collection, Events, GuildFeature, PermissionFlagsBits, PermissionsBitField, Routes } from "discord.js";
 import type { APIRoleColors, Client, REST, RoleColors } from "discord.js";
 import { canClaimStatsRoleSlot, formatClaimedStatsRoleName, formatUnclaimedStatsRoleName, getStatsRoleSlot, getStatsRolePositions, parseStatsRoleColor } from "./statsRoleSlotData.ts";
 import type { StatsRoleNaming, StatsRoleSlots } from "./statsRoleSlotData.ts";
@@ -61,19 +61,19 @@ test("new claims move below other stats roles and released slots return to numer
 });
 
 const applyRolePatch = (role: { name: string; colors: RoleColors }, body: unknown) => {
-    const { name, colors } = body as { name: string; colors?: APIRoleColors };
+    const { name, colors } = body as { name: string; colors?: Pick<APIRoleColors, "primary_color"> & Partial<APIRoleColors> };
     role.name = name;
     if (colors) {
         role.colors = {
             primaryColor: colors.primary_color,
-            secondaryColor: colors.secondary_color,
-            tertiaryColor: colors.tertiary_color,
+            secondaryColor: colors.secondary_color ?? null,
+            tertiaryColor: colors.tertiary_color ?? null,
         };
     }
     return colors !== undefined;
 };
 
-test("simultaneous role claims persist the first owner, rename the role, and remove competing claims", async () => {
+test.each([true, false])("simultaneous role claims update the first owner and remove competing claims (enhanced colors: %s)", async enhancedColors => {
     const client = new EventEmitter();
     const slots: StatsRoleSlots = { "1": { roleId: "role1" }, "2": { roleId: "role2" } };
     const removals: string[] = [];
@@ -90,6 +90,7 @@ test("simultaneous role claims persist the first owner, rename the role, and rem
     let initialized = false;
     const guild = {
         id: "guild",
+        features: enhancedColors ? [GuildFeature.EnhancedRoleColors] : [],
         roles: { fetch: async (id?: string) => id ? roles.get(id)! : new Collection(roles) },
         members: { fetch: async (options?: { user: string }) => {
             if (options) return members.get(options.user)!;
@@ -123,7 +124,15 @@ test("simultaneous role claims persist the first owner, rename the role, and rem
                 const role = [...roles.values()].find(role => route === Routes.guildRole("guild", role.id));
                 assert.ok(role);
                 const previousName = role.name;
-                if (applyRolePatch(role, body)) claimedEdits++;
+                if (applyRolePatch(role, body)) {
+                    claimedEdits++;
+                    assert.deepEqual(body, {
+                        name: "8🔥21 • Level 23",
+                        colors: enhancedColors
+                            ? { primary_color: 0x123456, secondary_color: 0x654321, tertiary_color: null }
+                            : { primary_color: 0x123456 },
+                    });
+                }
                 if (role.name !== previousName) renames.push(role.name);
             },
             delete: async route => {
@@ -150,7 +159,11 @@ test("simultaneous role claims persist the first owner, rename the role, and rem
     assert.equal(roles.get("role1")!.name, "8🔥21 • Level 23");
     assert.equal(roles.get("role2")!.name, "Unclaimed Role 2");
     assert.equal(claimedEdits, 1);
-    assert.deepEqual(roles.get("role1")!.colors, members.get("first")!.roles.highest.colors);
+    assert.deepEqual(roles.get("role1")!.colors, {
+        primaryColor: 0x123456,
+        secondaryColor: enhancedColors ? 0x654321 : null,
+        tertiaryColor: null,
+    });
     assert.equal(roles.get("role1")!.position, 1);
     assert.equal(roles.get("role2")!.position, 2);
     assert.equal(positionUpdates, 1);
@@ -190,6 +203,8 @@ test("managed Linked Roles can be configured when Unmyne passes permission and h
         tags: { guildConnections: true },
     };
     const guild = {
+        id: "guild",
+        features: [GuildFeature.EnhancedRoleColors],
         roles: { fetch: async () => role },
         members: { fetch: async (options?: { user: string; force: boolean }) => {
             if (!options) return new Collection();

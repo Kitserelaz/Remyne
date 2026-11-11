@@ -8,6 +8,7 @@ import {
     ComponentType,
     DiscordAPIError,
     Events,
+    GuildFeature,
     InteractionContextType,
     MessageFlags,
     PermissionFlagsBits,
@@ -19,7 +20,6 @@ import type {
     Guild,
     GuildMember,
     Message,
-    RESTPatchAPIGuildRoleJSONBody,
     RESTPutAPIApplicationCommandsJSONBody,
     RoleColors,
 } from "discord.js";
@@ -118,6 +118,13 @@ export const statsRoleCommand: RESTPutAPIApplicationCommandsJSONBody[number] = {
     ],
 };
 
+const supportsEnhancedColors = (guild: Guild) => guild.features.includes(GuildFeature.EnhancedRoleColors);
+
+const roleColorsChanged = (guild: Guild, current: RoleColors, desired: RoleColors) =>
+    current.primaryColor !== desired.primaryColor || (supportsEnhancedColors(guild) && (
+        current.secondaryColor !== desired.secondaryColor || current.tertiaryColor !== desired.tertiaryColor
+    ));
+
 export const startStatsRoleSlots = (
     client: Client,
     guildId: string,
@@ -140,16 +147,18 @@ export const startStatsRoleSlots = (
         return result;
     };
 
-    const editRole = (roleId: string, name: string, reason: string, colors?: RoleColors) => {
-        const body: RESTPatchAPIGuildRoleJSONBody = {
+    const editRole = (guild: Guild, roleId: string, name: string, reason: string, colors?: RoleColors) => {
+        const body = {
             name,
             colors: colors && {
                 primary_color: colors.primaryColor,
-                secondary_color: colors.secondaryColor,
-                tertiary_color: colors.tertiaryColor,
+                ...(supportsEnhancedColors(guild) ? {
+                    secondary_color: colors.secondaryColor,
+                    tertiary_color: colors.tertiaryColor,
+                } : {}),
             },
         };
-        return client.rest.patch(Routes.guildRole(guildId, roleId), { body, reason });
+        return client.rest.patch(Routes.guildRole(guild.id, roleId), { body, reason });
     };
 
     const updateRoleOrder = async (guild: Guild) => {
@@ -183,11 +192,10 @@ export const startStatsRoleSlots = (
                 const locked = Number(slotId) !== nextSlot;
                 const name = formatUnclaimedStatsRoleName(locked ? naming.lockedNameFormat : naming.nameFormat, slotId, locked);
                 const color = locked ? naming.lockedColor : naming.unclaimedColor;
-                const colorChanged = color !== undefined && (role.colors.primaryColor !== color ||
-                    role.colors.secondaryColor !== null || role.colors.tertiaryColor !== null);
+                const colors = color === undefined ? undefined : { primaryColor: color, secondaryColor: null, tertiaryColor: null };
+                const colorChanged = colors !== undefined && roleColorsChanged(guild, role.colors, colors);
                 if (name !== role.name || colorChanged) {
-                    const colors = color === undefined ? undefined : { primaryColor: color, secondaryColor: null, tertiaryColor: null };
-                    await editRole(role.id, name, locked ? "Stats role slot locked" : "Stats role slot available", colors);
+                    await editRole(guild, role.id, name, locked ? "Stats role slot locked" : "Stats role slot available", colors);
                 }
             } catch (error) {
                 console.error(`[Stats Roles] Could not update unclaimed slot ${slotId} (role ${slot.roleId}): ${describeError(error)}. Will retry.`);
@@ -243,11 +251,10 @@ export const startStatsRoleSlots = (
         console.log(`[Stats Roles] Fetching stats for appearance update (${context}).`);
         const name = await getClaimedRoleName(member.id);
         const colors = member.roles.highest.colors;
-        const colorsChanged = role.colors.primaryColor !== colors.primaryColor ||
-            role.colors.secondaryColor !== colors.secondaryColor || role.colors.tertiaryColor !== colors.tertiaryColor;
+        const colorsChanged = roleColorsChanged(member.guild, role.colors, colors);
         if (role.name !== name || colorsChanged) {
             console.log(`[Stats Roles] Sending Discord role edit (${context}): name=${JSON.stringify(name)}, color changed=${colorsChanged}.`);
-            await editRole(role.id, name, "Stats role streak, level, and color updated", colors);
+            await editRole(member.guild, role.id, name, "Stats role streak, level, and color updated", colors);
             console.log(`[Stats Roles] Discord accepted role edit (${context}).`);
         } else {
             console.log(`[Stats Roles] Skipped Discord role edit (${context}): name and colors already match.`);
