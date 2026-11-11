@@ -25,6 +25,7 @@ import type {
 } from "discord.js";
 import { canClaimStatsRoleSlot, formatClaimedStatsRoleName, formatUnclaimedStatsRoleName, getNextStatsRoleSlot, getStatsRoleSlot, getStatsRolePositions, parseStatsRoleColor } from "./statsRoleSlotData.ts";
 import type { StatsRoleNaming, StatsRoleSlots } from "./statsRoleSlotData.ts";
+import { describeLinkedRolesError } from "./linkedRolesErrors.ts";
 import { setupStatsRoleOverwrites } from "./statsRoleSetup.ts";
 import { auditStatsRoleOverwrites, reconcileStatsRoleOverwrites } from "./statsRoleAudit.ts";
 
@@ -128,6 +129,11 @@ export const startStatsRoleSlots = (
 ) => {
     let updates = Promise.resolve();
     const recentClaims = new Set<string>();
+    const describeError = (error: unknown) => describeLinkedRolesError(error, [
+        process.env.token ?? "", process.env.ALT_TOKEN ?? "", process.env.UNMYNE_TOKEN ?? "",
+        process.env.STATS_API_TOKEN ?? "", process.env.LINKED_ROLES_ENCRYPTION_KEY ?? "",
+        process.env.DISCORD_CLIENT_SECRET ?? "", process.env.ALT_CLIENT_SECRET ?? "",
+    ]);
     const serialize = <T>(operation: () => Promise<T>) => {
         const result = updates.then(operation);
         updates = result.then(() => {}, () => {});
@@ -159,8 +165,8 @@ export const startStatsRoleSlots = (
                 await client.rest.patch(Routes.guildRoles(guildId), { body });
             }
             recentClaims.clear();
-        } catch {
-            console.error("[Stats Roles] Could not update role order; will retry.");
+        } catch (error) {
+            console.error(`[Stats Roles] Could not update role order: ${describeError(error)}. Will retry.`);
         }
     };
 
@@ -170,7 +176,10 @@ export const startStatsRoleSlots = (
             if (slot.ownerId) continue;
             try {
                 const role = await guild.roles.fetch(slot.roleId);
-                if (!role) continue;
+                if (!role) {
+                    console.warn(`[Stats Roles] Slot ${slotId} points to missing role ${slot.roleId}.`);
+                    continue;
+                }
                 const locked = Number(slotId) !== nextSlot;
                 const name = formatUnclaimedStatsRoleName(locked ? naming.lockedNameFormat : naming.nameFormat, slotId, locked);
                 const color = locked ? naming.lockedColor : naming.unclaimedColor;
@@ -180,8 +189,8 @@ export const startStatsRoleSlots = (
                     const colors = color === undefined ? undefined : { primaryColor: color, secondaryColor: null, tertiaryColor: null };
                     await editRole(role.id, name, locked ? "Stats role slot locked" : "Stats role slot available", colors);
                 }
-            } catch {
-                console.error(`[Stats Roles] Could not update the name for slot ${slotId}; will retry.`);
+            } catch (error) {
+                console.error(`[Stats Roles] Could not update unclaimed slot ${slotId} (role ${slot.roleId}): ${describeError(error)}. Will retry.`);
             }
         }
     };
@@ -202,7 +211,10 @@ export const startStatsRoleSlots = (
 
     const processClaim = async (member: GuildMember, slotId: string) => {
         const slot = slots[slotId];
-        if (!slot || !member.roles.cache.has(slot.roleId)) return false;
+        if (!slot || !member.roles.cache.has(slot.roleId)) {
+            console.log(`[Stats Roles] Skipped slot ${slotId} for ${member.id}: ${slot ? `member no longer has role ${slot.roleId}` : "slot is not configured"}.`);
+            return false;
+        }
         if (!canClaimStatsRoleSlot(slots, slotId, member.id)) {
             console.log(`[Stats Roles] Removing slot ${slotId} from ${member.id}: owner=${slot.ownerId ?? "unclaimed"}, assigned=${getStatsRoleSlot(slots, member.id)}.`);
             await client.rest.delete(Routes.guildMemberRole(guildId, member.id, slot.roleId), {
@@ -223,14 +235,22 @@ export const startStatsRoleSlots = (
             console.log(`[Stats Roles] Claimed slot ${slotId} for ${member.id}.`);
         }
         const role = await member.guild.roles.fetch(slot.roleId);
-        if (role) {
-            const name = await getClaimedRoleName(member.id);
-            const colors = member.roles.highest.colors;
-            const colorsChanged = role.colors.primaryColor !== colors.primaryColor ||
-                role.colors.secondaryColor !== colors.secondaryColor || role.colors.tertiaryColor !== colors.tertiaryColor;
-            if (role.name !== name || colorsChanged) {
-                await editRole(role.id, name, "Stats role streak, level, and color updated", colors);
-            }
+        const context = `slot ${slotId}, role ${slot.roleId}, member ${member.id}`;
+        if (!role) {
+            console.warn(`[Stats Roles] Skipped appearance update (${context}): Discord role not found.`);
+            return true;
+        }
+        console.log(`[Stats Roles] Fetching stats for appearance update (${context}).`);
+        const name = await getClaimedRoleName(member.id);
+        const colors = member.roles.highest.colors;
+        const colorsChanged = role.colors.primaryColor !== colors.primaryColor ||
+            role.colors.secondaryColor !== colors.secondaryColor || role.colors.tertiaryColor !== colors.tertiaryColor;
+        if (role.name !== name || colorsChanged) {
+            console.log(`[Stats Roles] Sending Discord role edit (${context}): name=${JSON.stringify(name)}, color changed=${colorsChanged}.`);
+            await editRole(role.id, name, "Stats role streak, level, and color updated", colors);
+            console.log(`[Stats Roles] Discord accepted role edit (${context}).`);
+        } else {
+            console.log(`[Stats Roles] Skipped Discord role edit (${context}): name and colors already match.`);
         }
         return true;
     };
@@ -249,8 +269,8 @@ export const startStatsRoleSlots = (
                 if (!member.roles.cache.has(slot.roleId)) continue;
                 try {
                     await processClaim(member, slotId);
-                } catch {
-                    console.error(`[Stats Roles] Could not reconcile slot ${slotId} for ${member.id}; will retry.`);
+                } catch (error) {
+                    console.error(`[Stats Roles] Could not reconcile slot ${slotId} (role ${slot.roleId}, member ${member.id}): ${describeError(error)}. Will retry.`);
                 }
             }
         }
@@ -276,10 +296,10 @@ export const startStatsRoleSlots = (
             for (const [slotId] of added) {
                 try {
                     changed = await processClaim(current, slotId) || changed;
-                } catch {
+                } catch (error) {
                     // Ownership may already be saved even when Discord rejects a rename or removal.
                     changed = true;
-                    console.error(`[Stats Roles] Could not finish claim for slot ${slotId}; will retry.`);
+                    console.error(`[Stats Roles] Could not finish claim for slot ${slotId} (role ${slots[slotId]?.roleId}, member ${current.id}): ${describeError(error)}. Will retry.`);
                 }
             }
             if (changed) {
@@ -287,7 +307,7 @@ export const startStatsRoleSlots = (
                 await updateRoleOrder(current.guild);
                 await syncUsers();
             }
-        }).catch(() => console.error("[Stats Roles] Could not process role claims; will retry."));
+        }).catch(error => console.error(`[Stats Roles] Could not process role update for ${member.id}: ${describeError(error)}. Will retry.`));
     });
 
     client.on(Events.InteractionCreate, async interaction => {
@@ -460,8 +480,8 @@ export const startStatsRoleSlots = (
     const refresh = async () => {
         try {
             await reconcile();
-        } catch {
-            console.error("[Stats Roles] Could not reconcile slots; will retry in five minutes.");
+        } catch (error) {
+            console.error(`[Stats Roles] Could not reconcile slots: ${describeError(error)}. Will retry in five minutes.`);
         } finally {
             setTimeout(() => void refresh(), 5 * 60 * 1000).unref();
         }
