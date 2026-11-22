@@ -1,6 +1,14 @@
 import { once } from "node:events";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
+import { DefaultWebSocketManagerOptions } from 'discord.js';
+
+Object.assign(DefaultWebSocketManagerOptions.identifyProperties, {
+  os: 'Android',
+  browser: 'Discord VR',
+  device: 'Meta Quest',
+});
+
 export const streaksGuildId = "1216816878937313442";
 
 const unmyneToken = process.env.UNMYNE_TOKEN?.trim();
